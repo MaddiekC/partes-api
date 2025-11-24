@@ -1,0 +1,33 @@
+# Visual Studio
+.vs/
+*.vssscc
+*.vspscc
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+# Build results
+bin/
+obj/
+
+# Visual Studio Code
+.vscode/
+
+# Rider / JetBrains
+.idea/
+
+# Logs
+*.log
+
+# ASP.NET Secrets
+secrets.json
+
+# Publish output
+publish/
+
+# Node / npm
+node_modules/
+
+# Database files (opcional)
+*.db
