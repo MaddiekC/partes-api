@@ -13,7 +13,7 @@ var conn = builder.Configuration.GetConnectionString("conn");
 
 // Registrar DbContext usando Pomelo (ServerVersion.AutoDetect detecta versión de MySQL automáticamente)
 builder.Services.AddDbContext<AppDbContext>(options =>
-    options.UseMySql(conn, ServerVersion.AutoDetect(conn)));
+     options.UseMySql(conn, ServerVersion.AutoDetect(conn)));
 
 builder.Services.AddCors(options =>
 {

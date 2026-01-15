@@ -31,3 +31,9 @@ node_modules/
 
 # Database files (opcional)
 *.db
+
+# ASP.NET appsettings (secretos)
+appsettings.Development.json
+appsettings.Production.json
+appsettings.Staging.json
+

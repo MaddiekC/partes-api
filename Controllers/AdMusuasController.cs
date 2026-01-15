@@ -90,6 +90,8 @@ namespace PartesApi.Controllers
             var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
             return Ok(new { token = tokenString, msg = "Inicio de sesión exitoso" });
+       
         }
     }
+
 }

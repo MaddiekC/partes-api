@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Http;
+﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PartesApi.Data;
@@ -17,22 +18,33 @@ namespace PartesApi.Controllers
             _context = context;
         }
 
-        // GET: api/AdMusuas
+        // GET: api/RhMtrabs
         [HttpGet]
         public async Task<ActionResult<IEnumerable<RhMtrab>>> GetRhMhacis()
         {
             return await _context.RhMtrabs.ToListAsync();
         }
-        //GET: api/RhMhacis/5
-        [HttpGet("{COD_TRABJ}")]
-        public async Task<ActionResult<RhMtrab>> GetRhMtrab(uint COD_TRABJ)
+        //GET: api/RhMtrabs/5
+        [HttpGet("{fecha}")]
+        public async Task<ActionResult<RhMtrab>> GetRhMtrab(DateOnly fecha)
         {
-            var RhMtrab = await _context.RhMtrabs.AsNoTracking().FirstOrDefaultAsync(x => x.CodTrabaj == COD_TRABJ);
+            var codigosAsistencia = await _context.DetAsistencias
+                .Where(a => a.Fecha.HasValue && a.Fecha.Value == fecha)
+                .Select(a => a.CodTrabaj)
+                .Distinct()
+                .ToListAsync();
+
+            var RhMtrab = await _context.RhMtrabs
+                .Where(t => codigosAsistencia.Contains(t.CodTrabaj))
+                .OrderBy(t => t.NombreCorto)
+                .AsNoTracking()
+                .ToListAsync();
+
             if (RhMtrab == null)
             {
                 return NotFound();
             }
-            return RhMtrab;
+            return Ok(RhMtrab);
         }
     }
 }

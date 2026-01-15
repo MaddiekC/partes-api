@@ -54,7 +54,7 @@ public partial class Labor
     public uint UsuarioCre { get; set; }
 
     [Column("fechaCre", TypeName = "datetime")]
-    public DateTime FechaCre { get; set; }
+    public DateTime? FechaCre { get; set; }
 
     [Column("usuarioMod")]
     public uint? UsuarioMod { get; set; }

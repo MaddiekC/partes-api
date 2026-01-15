@@ -87,4 +87,5 @@ public partial class TranDparte
 
     [Column("idparcela_empleado")]
     public int? IdparcelaEmpleado { get; set; }
+    //public decimal Medida { get; internal set; }
 }

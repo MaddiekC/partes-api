@@ -1,12 +1,15 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using PartesApi.Data;
 using PartesApi.Models;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Security.Claims;
+using System.Threading.Tasks;
+using static System.Runtime.InteropServices.JavaScript.JSType;
 
 namespace PartesApi.Controllers
 {
@@ -15,17 +18,22 @@ namespace PartesApi.Controllers
     public class TranCpartesController : ControllerBase
     {
         private readonly AppDbContext _context;
+        private readonly ILogger<TranCpartesController> _logger;
 
-        public TranCpartesController(AppDbContext context)
+        public TranCpartesController(AppDbContext context, ILogger<TranCpartesController> logger)
         {
             _context = context;
+            _logger = logger;
         }
 
         // GET: api/TranCpartes
         [HttpGet]
         public async Task<ActionResult<IEnumerable<TranCparte>>> GetTranCpartes()
         {
-            return await _context.TranCpartes.ToListAsync();
+            return await _context.TranCpartes
+                .OrderByDescending(t => t.FechaParte)
+                .Take(28)
+                .ToListAsync();
         }
 
         // GET: api/TranCpartes/5
@@ -42,8 +50,46 @@ namespace PartesApi.Controllers
             return tranCparte;
         }
 
-        // PUT: api/TranCpartes/5
-        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
+        [HttpGet("mine")]
+        public async Task<IActionResult> GetMyPartes(
+            //int page = 1,
+            //int pageSize = 20
+            )
+        {
+            var userIdClaim = User.FindFirst("UserId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
+            if (userIdClaim == null || string.IsNullOrEmpty(userIdClaim.Value))
+            {
+                return Unauthorized("UserId claim missing");
+            }
+
+            if (!long.TryParse(userIdClaim.Value, out var userId))
+            {
+                _logger.LogWarning("UserId claim inválido: {Claim}", userIdClaim.Value);
+                return Unauthorized("Invalid user id claim");
+            }
+
+
+            var query = _context.TranCpartes
+                .AsNoTracking()
+                .Where(p => p.UsuarioCreId == userId)
+                .Where(p => p.Estado == "A");
+
+            var totalItems = await query.CountAsync();
+
+            var partes = await query
+                .OrderByDescending(p => p.FechaParte)
+                .Take(28)
+                //.Skip((page - 1) * pageSize)
+                //.Take(pageSize)
+                .ToListAsync();
+
+            return Ok(new
+            {
+                totalItems,
+                data = partes
+            });
+        }
+
         [HttpPut("{id}")]
         public async Task<IActionResult> PutTranCparte(int id, TranCparte tranCparte)
         {
@@ -57,7 +103,7 @@ namespace PartesApi.Controllers
             try
             {
                 await _context.SaveChangesAsync();
-            }
+            } 
             catch (DbUpdateConcurrencyException)
             {
                 if (!TranCparteExists(id))
@@ -73,11 +119,33 @@ namespace PartesApi.Controllers
             return NoContent();
         }
 
+        private int GetCurrentUserId()
+        {
+            var userIdClaim = User.FindFirst("UserId")?.Value;
+            return int.TryParse(userIdClaim, out int id) ? id : 0;
+        }
+
         // POST: api/TranCpartes
         // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPost]
         public async Task<ActionResult<TranCparte>> PostTranCparte(TranCparte tranCparte)
         {
+            // 1. Obtener el ID del usuario desde el Token
+            int userId = GetCurrentUserId();
+            if (userId == 0) return Unauthorized("No se pudo identificar al usuario.");
+
+            // 2. Asignar auditoría
+            tranCparte.UsuarioCreId = userId;
+            tranCparte.FechaCre = DateTime.Now;
+
+            int ultimoId = 0;
+            if (await _context.TranCpartes.AnyAsync())
+            {
+                ultimoId = await _context.TranCpartes.MaxAsync(t => t.SecParte);
+            }
+
+            tranCparte.SecParte = ultimoId + 1;
+
             _context.TranCpartes.Add(tranCparte);
             try
             {
@@ -117,6 +185,35 @@ namespace PartesApi.Controllers
         private bool TranCparteExists(int id)
         {
             return _context.TranCpartes.Any(e => e.SecParte == id);
+        }
+
+        [AllowAnonymous]
+        // PATCH: api/TranCpartes/Desactivar/5
+        [HttpPatch("Desactivar/{SEC_PARTE}")]
+        public async Task<IActionResult> DesactivarParte(int SEC_PARTE)
+        {
+            // 1. Buscar la cabecera
+            var parte = await _context.TranCpartes.FindAsync(SEC_PARTE);
+
+            if (parte == null)
+            {
+                return NotFound(new { message = $"No se encontró el parte con ID {SEC_PARTE}" });
+            }
+
+            // 2. Cambiar el estado a 'I'
+            parte.Estado = "I";
+
+            try
+            {
+                _context.Entry(parte).Property(x => x.Estado).IsModified = true;
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                return StatusCode(500, "Error de concurrencia al desactivar.");
+            }
+
+            return Ok(new { message = "Parte desactivado correctamente", SECPARTE = SEC_PARTE });
         }
     }
 }

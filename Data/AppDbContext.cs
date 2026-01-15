@@ -33,6 +33,10 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<TranDparte> TranDpartes { get; set; }
 
+    public virtual DbSet<UnidadMedida> UnidadMedidas { get; set; }
+
+    public virtual DbSet<DetAsistencia> DetAsistencias { get; set; }
+
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
         modelBuilder
@@ -74,8 +78,25 @@ public partial class AppDbContext : DbContext
 
         modelBuilder.Entity<TranDparte>(entity =>
         {
+            entity.HasKey(t => new { t.SecParte });
             entity.Property(e => e.HoraFin).IsFixedLength();
             entity.Property(e => e.HoraInicio).IsFixedLength();
+        });
+
+        modelBuilder.Entity<UnidadMedida>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
+
+            entity.Property(e => e.Estado).IsFixedLength();
+        });
+
+        modelBuilder.Entity<DetAsistencia>(entity =>
+        {
+            entity.HasKey(e => e.Secuencia).HasName("PRIMARY");
+
+            entity.Property(e => e.Estado).IsFixedLength();
+            entity.Property(e => e.IdAsistencia).HasDefaultValueSql("'0'");
+            entity.Property(e => e.Tipo).IsFixedLength();
         });
 
         OnModelCreatingPartial(modelBuilder);
