@@ -36,6 +36,7 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<UnidadMedida> UnidadMedidas { get; set; }
 
     public virtual DbSet<DetAsistencia> DetAsistencias { get; set; }
+    public virtual DbSet<RhMlotseccion> RhMlotseccions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -78,7 +79,14 @@ public partial class AppDbContext : DbContext
 
         modelBuilder.Entity<TranDparte>(entity =>
         {
-            entity.HasKey(t => new { t.SecParte });
+            entity.HasKey(e => new { e.SecParte, e.Secuencia }).HasName("PRIMARY");
+
+            entity.ToTable("tran_dparte");
+
+            // Para que no genere la secuencia automáticamente
+            entity.Property(e => e.Secuencia).ValueGeneratedNever();
+            entity.Property(e => e.SecParte).ValueGeneratedNever();
+
             entity.Property(e => e.HoraFin).IsFixedLength();
             entity.Property(e => e.HoraInicio).IsFixedLength();
         });
@@ -86,6 +94,15 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<UnidadMedida>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
+
+            entity.Property(e => e.Estado).IsFixedLength();
+        });
+
+        modelBuilder.Entity<RhMlotseccion>(entity =>
+        {
+            entity.HasNoKey();
+
+            entity.ToTable("rh_mlotseccion");
 
             entity.Property(e => e.Estado).IsFixedLength();
         });

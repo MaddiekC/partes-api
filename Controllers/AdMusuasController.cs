@@ -2,14 +2,16 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration; 
 using Microsoft.IdentityModel.Tokens;
+using MySqlConnector;
 using PartesApi.Data;
 using PartesApi.Models;
 using System.Configuration;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using Microsoft.Extensions.Configuration; // Añade este using si no está
+using Dapper; 
 
 namespace PartesApi.Controllers
 {
@@ -90,8 +92,82 @@ namespace PartesApi.Controllers
             var tokenString = new JwtSecurityTokenHandler().WriteToken(token);
 
             return Ok(new { token = tokenString, msg = "Inicio de sesión exitoso" });
-       
+
+        }
+
+
+        public class EsquemaDto
+        {
+            public string Nombre { get; set; } = string.Empty;
+            public string Tipo { get; set; } = string.Empty;
+            public string Extra { get; set; } = string.Empty; // Para detectar llaves primarias o autoincrementales
+        }
+
+        [AllowAnonymous]
+        [HttpGet("esquema/{nombreTabla}")]
+        public async Task<IActionResult> GetEsquema(string nombreTabla)
+        {
+            // Consulta específica para MySQL
+            var sql = @"SELECT COLUMN_NAME AS Nombre, 
+                       DATA_TYPE AS Tipo, 
+                       COLUMN_KEY AS Extra 
+                FROM INFORMATION_SCHEMA.COLUMNS 
+                WHERE TABLE_NAME = {0} 
+                AND TABLE_SCHEMA = DATABASE()";
+
+            var esquema = await _context.Database
+                .SqlQueryRaw<EsquemaDto>(sql, nombreTabla)
+                .ToListAsync();
+
+            if (!esquema.Any()) return NotFound($"La tabla {nombreTabla} no existe.");
+
+            return Ok(esquema);
+        }
+
+        [AllowAnonymous]
+        [HttpGet("datos/{nombreTabla}")]
+        public async Task<IActionResult> GetDatosTabla(string nombreTabla)
+        {
+            var tablasPermitidas = new[] { "rh_mhaci", "rh_mlotes", "labor", "rh_mtrab", "det_asistencia", "unidad_medida", "rh_mlotseccion" };
+            if (!tablasPermitidas.Contains(nombreTabla.ToLower()))
+                return BadRequest("Tabla no permitida.");
+
+            using (var connection = new MySqlConnection(_context.Database.GetConnectionString()))
+            {
+                await connection.OpenAsync();
+                var sql = $"SELECT * FROM {nombreTabla} WHERE ESTADO IN ('A', '2')";
+                // Filtro especial 
+                if (nombreTabla.ToLower() == "det_asistencia")
+                {
+                    sql = "SELECT * FROM det_asistencia WHERE fecha >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)";
+                }
+                var datosRaw = await connection.QueryAsync(sql);
+
+                // Convertimos cada fila a un diccionario y filtramos valores complejos
+                var datosLimpios = datosRaw.Select(row =>
+                {
+                    var dict = (IDictionary<string, object>)row;
+                    return dict.ToDictionary(
+                        kvp => kvp.Key,
+                    kvp => {
+                            // Si el valor es una fecha o un objeto complejo, lo convertimos a texto
+                            if (kvp.Value is DateTime dt) return dt.ToString("yyyy-MM-dd");
+
+                            // Si es el objeto raro que viste en el log (ExpandoObject o similar)
+                            if (kvp.Value != null && kvp.Value.GetType().Name.Contains("DateTime"))
+                                return Convert.ToDateTime(kvp.Value.ToString()).ToString("yyyy-MM-dd");
+
+                            // Si es cualquier otro objeto que no sea un tipo simple, lo hacemos null para no romper SQLite
+                            if (kvp.Value != null && !kvp.Value.GetType().IsValueType && !(kvp.Value is string))
+                                return null;
+
+                            return kvp.Value;
+                        }
+                    );
+                });
+
+                return Ok(datosLimpios);
+            }
         }
     }
-
-}
+    }

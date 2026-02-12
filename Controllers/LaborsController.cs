@@ -25,7 +25,9 @@ namespace PartesApi.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Labor>>> GetLabors()
         {
-            return await _context.Labors.ToListAsync();
+            return await _context.Labors
+                .Where(l => (l.IdFuerzaLab != 17 || l.IdFuerzaLab == null) && l.Estado == "A") 
+                .ToListAsync();
         }
 
         // GET: api/Labors/5

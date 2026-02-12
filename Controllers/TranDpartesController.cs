@@ -60,10 +60,12 @@ namespace PartesApi.Controllers
             public DateTime FechaInicio { get; set; }
             public DateTime FechaFin { get; set; }
             public decimal Cantidad { get; set; }
-            //public decimal Medida { get; set; }
-            public int Empleado { get; set; } 
+            public int CodTrabaj { get; set; } 
             public int Lote { get; set; }
             public int Labor { get; set; }
+            public int Secuencia { get; set; }
+            public String NomSeccion { get; set; }
+            public int ValorUnitario { get; set; }
         }
 
 
@@ -90,7 +92,7 @@ namespace PartesApi.Controllers
 
                 // 1. BUSCAR ACUMULADO: Sumamos lo que ya existe en la DB para este empleado, labor y fecha
                 var acumuladoEnDB = await _context.TranDpartes
-                    .Where(x => x.CodTrabaj == d.Empleado
+                    .Where(x => x.CodTrabaj == d.CodTrabaj
                              && x.CodLabor == d.Labor
                              && x.FechaInicio == fechaActual)
                     .SumAsync(x => x.Cantidad);
@@ -102,14 +104,14 @@ namespace PartesApi.Controllers
                     // Validación de Máximo
                     if (totalHoy > (double)labor.AvanceMaximo)
                     {
-                        return BadRequest($"El empleado {d.Empleado} ya tiene {acumuladoEnDB} registrados. " +
+                        return BadRequest($"El empleado {d.CodTrabaj} ya tiene {acumuladoEnDB} registrados. " +
                                          $"Con este nuevo ingreso suma {totalHoy}, excediendo el máximo de {labor.AvanceMaximo}.");
                     }
 
                     // Validación de Mínimo
                     if (d.Cantidad < labor.AvanceMinimo)
                     {
-                        return BadRequest($"Error: El empleado {d.Empleado} no alcanza la cantidad mínima ({labor.AvanceMinimo}) para la labor {labor.Nombre}");
+                        return BadRequest($"Error: El empleado {d.CodTrabaj} no alcanza la cantidad mínima ({labor.AvanceMinimo}) para la labor {labor.Nombre}");
                     }
                 }
                 else
@@ -121,9 +123,11 @@ namespace PartesApi.Controllers
             var entidades = dto.Detalles.Select(d => new TranDparte
             {
                 SecParte = dto.SecParte,
-                CodTrabaj = d.Empleado, 
+                Secuencia = d.Secuencia,
+                CodTrabaj = d.CodTrabaj, 
                 LoteId = d.Lote,
                 CodLabor = d.Labor,
+                NomSeccion = d.NomSeccion.ToString(),
                 FechaInicio = DateOnly.FromDateTime(d.FechaInicio),
                 FechaFin = DateOnly.FromDateTime(d.FechaFin),
                 Cantidad = d.Cantidad,
@@ -146,7 +150,7 @@ namespace PartesApi.Controllers
             public DateTime FechaInicio { get; set; }
             public DateTime FechaFin { get; set; }
             public decimal Cantidad { get; set; }
-            public int Empleado { get; set; }
+            public int CodTrabaj { get; set; }
             public int Lote { get; set; }
             public int Labor { get; set; }
         }
@@ -177,7 +181,7 @@ namespace PartesApi.Controllers
             // 3. Validar acumulado (restando la cantidad anterior del mismo registro)
             var fechaActual = DateOnly.FromDateTime(dto.FechaInicio);
             var acumuladoEnDB = await _context.TranDpartes
-                .Where(x => x.CodTrabaj == dto.Empleado
+                .Where(x => x.CodTrabaj == dto.CodTrabaj
                          && x.CodLabor == dto.Labor
                          && x.FechaInicio == fechaActual
                          && !(x.SecParte == secParte && x.Secuencia == secuencia)) // Excluir el registro actual de la suma
@@ -201,7 +205,7 @@ namespace PartesApi.Controllers
                 // En lugar de _context.Update(), usamos ExecuteSqlInterpolatedAsync
                 var filasAfectadas = await _context.Database.ExecuteSqlInterpolatedAsync($@"
                     UPDATE tran_dparte 
-                    SET cod_trabaj = {dto.Empleado}, 
+                    SET cod_trabaj = {dto.CodTrabaj}, 
                         lote_id = {dto.Lote}, 
                         cod_labor = {dto.Labor}, 
                         cantidad = {dto.Cantidad}, 

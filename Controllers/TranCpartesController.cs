@@ -98,6 +98,10 @@ namespace PartesApi.Controllers
                 return BadRequest();
             }
 
+            //int userId = GetCurrentUserId();
+            //tranCparte.UsuarioModId = userId;
+            //tranCparte.FechaMod = DateTime.Now;
+
             _context.Entry(tranCparte).State = EntityState.Modified;
 
             try
@@ -145,6 +149,22 @@ namespace PartesApi.Controllers
             }
 
             tranCparte.SecParte = ultimoId + 1;
+
+            int ultimoCodigoPersonal = 0;
+            // Buscamos si ESTE usuario ya ha hecho partes antes
+            var tienePartesPrevios = await _context.TranCpartes
+                .AnyAsync(t => t.UsuarioCreId == userId);
+
+            if (tienePartesPrevios)
+            {
+                // Buscamos el máximo código pero SOLO de este usuario
+                ultimoCodigoPersonal = await _context.TranCpartes
+                    .Where(t => t.UsuarioCreId == userId)
+                    .MaxAsync(t => t.Codigo) ?? 0;
+            }
+
+            // El nuevo código será su último número + 1
+            tranCparte.Codigo = ultimoCodigoPersonal + 1;
 
             _context.TranCpartes.Add(tranCparte);
             try
@@ -199,8 +219,6 @@ namespace PartesApi.Controllers
             {
                 return NotFound(new { message = $"No se encontró el parte con ID {SEC_PARTE}" });
             }
-
-            // 2. Cambiar el estado a 'I'
             parte.Estado = "I";
 
             try

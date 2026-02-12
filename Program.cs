@@ -44,7 +44,7 @@ builder.Services.AddAuthentication(options =>
 })
 .AddJwtBearer(options =>
 {
-    options.RequireHttpsMetadata = true;
+    options.RequireHttpsMetadata = false;
     options.SaveToken = true;
     options.TokenValidationParameters = new TokenValidationParameters
     {
@@ -69,6 +69,8 @@ builder.Services.AddAuthorizationBuilder()
 
 var app = builder.Build();
 
+app.UseCors("newPolicy");
+
 // Configure the HTTP request pipeline.
 if (app.Environment.IsDevelopment())
 {
@@ -76,9 +78,7 @@ if (app.Environment.IsDevelopment())
     app.UseSwaggerUI();
 }
 
-app.UseHttpsRedirection();
-
-app.UseCors("newPolicy");
+//app.UseHttpsRedirection();
 
 app.UseAuthentication();
 
