@@ -37,6 +37,8 @@ public partial class AppDbContext : DbContext
 
     public virtual DbSet<DetAsistencia> DetAsistencias { get; set; }
     public virtual DbSet<RhMlotseccion> RhMlotseccions { get; set; }
+    public virtual DbSet<AreaGrupoLabor> AreaGrupoLabors { get; set; }
+    public virtual DbSet<AudRegistro> AudRegistros { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -105,6 +107,16 @@ public partial class AppDbContext : DbContext
             entity.ToTable("rh_mlotseccion");
 
             entity.Property(e => e.Estado).IsFixedLength();
+        });
+
+        modelBuilder.Entity<AreaGrupoLabor>(entity =>
+        {
+            entity.Property(e => e.Estado).IsFixedLength();
+        });
+
+        modelBuilder.Entity<AudRegistro>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
         });
 
         modelBuilder.Entity<DetAsistencia>(entity =>

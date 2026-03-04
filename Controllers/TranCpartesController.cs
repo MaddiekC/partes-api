@@ -51,10 +51,7 @@ namespace PartesApi.Controllers
         }
 
         [HttpGet("mine")]
-        public async Task<IActionResult> GetMyPartes(
-            //int page = 1,
-            //int pageSize = 20
-            )
+        public async Task<IActionResult> GetMyPartes()
         {
             var userIdClaim = User.FindFirst("UserId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
             if (userIdClaim == null || string.IsNullOrEmpty(userIdClaim.Value))
@@ -68,27 +65,37 @@ namespace PartesApi.Controllers
                 return Unauthorized("Invalid user id claim");
             }
 
-
             var query = _context.TranCpartes
-                .AsNoTracking()
-                .Where(p => p.UsuarioCreId == userId)
-                .Where(p => p.Estado == "A");
-
-            var totalItems = await query.CountAsync();
+            .AsNoTracking()
+            .Where(p => p.UsuarioCreId == userId && p.Estado == "A");
 
             var partes = await query
                 .OrderByDescending(p => p.FechaParte)
+                .Select(p => new {
+                    Parte = p,
+                    TotalDetalles = _context.TranDpartes.Count(d => d.SecParte == p.SecParte)
+                })
                 .Take(28)
-                //.Skip((page - 1) * pageSize)
-                //.Take(pageSize)
                 .ToListAsync();
 
-            return Ok(new
-            {
-                totalItems,
-                data = partes
+            var resultado = partes.Select(x => {
+                var p = x.Parte;
+                return new
+                {
+                    p.SecParte,
+                    p.CodHacienda,
+                    p.FechaParte,
+                    p.Usuarioaprob,
+                    p.Codigo,
+                    p.Estado,
+                    p.Observacion,
+                    TotalDetalles = x.TotalDetalles
+                };
             });
+
+            return Ok(resultado);
         }
+
 
         [HttpPut("{id}")]
         public async Task<IActionResult> PutTranCparte(int id, TranCparte tranCparte)

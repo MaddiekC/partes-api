@@ -66,11 +66,11 @@ namespace PartesApi.Controllers
 
             if (user == null) return Unauthorized(new { msg = "Usuario o contraseña incorrectos." });
 
-            // generar claims (añade lo que necesites)
             var claims = new[]
             {
                 new Claim(JwtRegisteredClaimNames.Sub, user.UsLogin ?? string.Empty),
                 new Claim("UserId", user.UsCodigo?.ToString() ?? string.Empty),
+                new Claim("Name", user.UsNombre?.ToString() ?? string.Empty),
                 new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
             };
 
@@ -128,7 +128,7 @@ namespace PartesApi.Controllers
         [HttpGet("datos/{nombreTabla}")]
         public async Task<IActionResult> GetDatosTabla(string nombreTabla)
         {
-            var tablasPermitidas = new[] { "rh_mhaci", "rh_mlotes", "labor", "rh_mtrab", "det_asistencia", "unidad_medida", "rh_mlotseccion" };
+            var tablasPermitidas = new[] { "rh_mhaci", "rh_mlotes", "labor", "rh_mtrab", "det_asistencia", "unidad_medida", "rh_mlotseccion", "area_grupo_labor" , "rh_mlotseccion"};
             if (!tablasPermitidas.Contains(nombreTabla.ToLower()))
                 return BadRequest("Tabla no permitida.");
 
@@ -139,7 +139,7 @@ namespace PartesApi.Controllers
                 // Filtro especial 
                 if (nombreTabla.ToLower() == "det_asistencia")
                 {
-                    sql = "SELECT * FROM det_asistencia WHERE fecha >= DATE_SUB(CURDATE(), INTERVAL 3 MONTH)";
+                    sql = "SELECT * FROM det_asistencia WHERE fecha >= DATE_SUB(CURDATE(), INTERVAL 2 MONTH)";
                 }
                 var datosRaw = await connection.QueryAsync(sql);
 

@@ -5,6 +5,8 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.VisualStudio.Web.CodeGenerators.Mvc.Templates.Blazor;
 using PartesApi.Data;
 using PartesApi.Models;
+using System.ComponentModel.DataAnnotations.Schema;
+using System.Text;
 
 namespace PartesApi.Controllers
 {
@@ -66,6 +68,7 @@ namespace PartesApi.Controllers
             public int Secuencia { get; set; }
             public String NomSeccion { get; set; }
             public int ValorUnitario { get; set; }
+            public int ValorTotal { get; set; }
         }
 
 
@@ -77,15 +80,16 @@ namespace PartesApi.Controllers
             if (dto == null || dto.Detalles == null || dto.Detalles.Count == 0)
                 return BadRequest("No se enviaron detalles");
 
-            // 1. Obtener los códigos de labor únicos que vienen en el DTO para optimizar la consulta
             var codigosLabor = dto.Detalles.Select(d => (uint)d.Labor).Distinct().ToList();
 
-            // 2. Traer la información de esas labores de la base de datos
             var laboresInfo = await _context.Labors
                 .Where(l => codigosLabor.Contains(l.Id))
                 .ToDictionaryAsync(l => l.Id);
 
-            // 3. Validar cada detalle antes de crear las entidades
+            var tarifasDict = await _context.Tarifas
+                .Where(t => codigosLabor.Contains((uint)t.IdLabor) && t.Estado == "A")
+                .ToDictionaryAsync(t => (uint)t.IdLabor, t => (double)t.Valor);
+
             foreach (var d in dto.Detalles)
             {
                 var fechaActual = DateOnly.FromDateTime(d.FechaInicio);
@@ -120,17 +124,23 @@ namespace PartesApi.Controllers
                 }
             }
 
-            var entidades = dto.Detalles.Select(d => new TranDparte
+            var entidades = dto.Detalles.Select(d =>
             {
-                SecParte = dto.SecParte,
-                Secuencia = d.Secuencia,
-                CodTrabaj = d.CodTrabaj, 
-                LoteId = d.Lote,
-                CodLabor = d.Labor,
-                NomSeccion = d.NomSeccion.ToString(),
-                FechaInicio = DateOnly.FromDateTime(d.FechaInicio),
-                FechaFin = DateOnly.FromDateTime(d.FechaFin),
-                Cantidad = d.Cantidad,
+                var valorUnitario = (decimal)(tarifasDict.TryGetValue((uint)d.Labor, out var tarifa) ? tarifa : 0);
+                return new TranDparte
+                {
+                    SecParte = dto.SecParte,
+                    Secuencia = d.Secuencia,
+                    CodTrabaj = d.CodTrabaj,
+                    LoteId = d.Lote,
+                    CodLabor = d.Labor,
+                    NomSeccion = d.NomSeccion.ToString(),
+                    FechaInicio = DateOnly.FromDateTime(d.FechaInicio),
+                    FechaFin = DateOnly.FromDateTime(d.FechaFin),
+                    Cantidad = d.Cantidad,
+                    ValorUnitario = valorUnitario,
+                    ValorTotal = valorUnitario * d.Cantidad
+                };
             }).ToList();
 
             await _context.TranDpartes.AddRangeAsync(entidades);
@@ -152,11 +162,23 @@ namespace PartesApi.Controllers
             public decimal Cantidad { get; set; }
             public int CodTrabaj { get; set; }
             public int Lote { get; set; }
+            public String NomSeccion { get; set; }
             public int Labor { get; set; }
+            public int ValorUnitario { get; set; }
+        }
+
+        private int GetCurrentUserId()
+        {
+            var userIdClaim = User.FindFirst("UserId")?.Value;
+            return int.TryParse(userIdClaim, out int id) ? id : 0;
+        }
+        private string GetCurrentUserName()
+        {
+            var userNameClaim = User.FindFirst("Name")?.Value;
+            return userNameClaim ?? string.Empty;
         }
 
         [AllowAnonymous]
-        // PUT: api/TranDpartes/5/1 (Donde 5 es SecParte y 1 es Secuencia)
         [HttpPut("{secParte}/{secuencia}")]
         public async Task<IActionResult> UpdateDetalle(int secParte, int secuencia, [FromBody] TranDparteUpdateDto dto)
         {
@@ -178,17 +200,18 @@ namespace PartesApi.Controllers
             var labor = await _context.Labors.FindAsync((uint)dto.Labor);
             if (labor == null) return BadRequest("Labor no encontrada.");
 
+
             // 3. Validar acumulado (restando la cantidad anterior del mismo registro)
             var fechaActual = DateOnly.FromDateTime(dto.FechaInicio);
             var acumuladoEnDB = await _context.TranDpartes
                 .Where(x => x.CodTrabaj == dto.CodTrabaj
                          && x.CodLabor == dto.Labor
                          && x.FechaInicio == fechaActual
-                         && !(x.SecParte == secParte && x.Secuencia == secuencia)) // Excluir el registro actual de la suma
+                         && !(x.SecParte == secParte && x.Secuencia == secuencia)) 
                 .SumAsync(x => x.Cantidad) ?? 0;
 
             decimal totalHoy = acumuladoEnDB + dto.Cantidad;
-
+             
             if (totalHoy > labor.AvanceMaximo)
             {
                 return BadRequest($"El empleado ya tiene {acumuladoEnDB} registrados. " +
@@ -200,20 +223,68 @@ namespace PartesApi.Controllers
                 return BadRequest($"La cantidad es inferior al mínimo permitido ({labor.AvanceMinimo}).");
             }
 
+            var cambios = new StringBuilder();
+            cambios.Append($"Empleado: {dto.CodTrabaj}; labor: {dto.Labor}; Sec_parte: {secParte}; Linea: {secuencia} ");
+
+            bool huboCambios = false;
+
+            // Comparar Lote
+            if (detalleExistente.LoteId != dto.Lote)
+            {
+                cambios.Append($"Campo LOTE, antes: {detalleExistente.LoteId}, despues: {dto.Lote}; ");
+                huboCambios = true;
+            }
+
+            // Comparar Labor
+            if (detalleExistente.CodLabor != dto.Labor)
+            {
+                cambios.Append($"Campo LABOR, antes: {detalleExistente.CodLabor}, despues: {dto.Labor}; ");
+                huboCambios = true;
+            }
+
+            // Comparar Cantidad
+            if ((decimal)(detalleExistente.Cantidad ?? 0) != dto.Cantidad)
+            {
+                cambios.Append($"Campo CANTIDAD, antes: {detalleExistente.Cantidad}, despues: {dto.Cantidad}; ");
+                huboCambios = true;
+            }
+
+            if (detalleExistente.NomSeccion != dto.NomSeccion.ToString())
+            {
+                cambios.Append($"Campo NOM_SECCION, antes: {detalleExistente.NomSeccion}, despues: {dto.NomSeccion}; ");
+                huboCambios = true;
+            }
+
+            string scriptFinal = cambios.ToString();
             try
             {
-                // En lugar de _context.Update(), usamos ExecuteSqlInterpolatedAsync
+                decimal nuevoValorTotal = dto.Cantidad * (detalleExistente.ValorUnitario ?? 0);
                 var filasAfectadas = await _context.Database.ExecuteSqlInterpolatedAsync($@"
                     UPDATE tran_dparte 
                     SET cod_trabaj = {dto.CodTrabaj}, 
-                        lote_id = {dto.Lote}, 
                         cod_labor = {dto.Labor}, 
                         cantidad = {dto.Cantidad}, 
+                        lote_id = {dto.Lote},
+                        nom_seccion = {dto.NomSeccion},
                         fecha_inicio = {DateOnly.FromDateTime(dto.FechaInicio)}, 
-                        fecha_fin = {DateOnly.FromDateTime(dto.FechaFin)}
+                        fecha_fin = {DateOnly.FromDateTime(dto.FechaFin)},
+                        valor_total = {nuevoValorTotal}
                     WHERE sec_parte = {secParte} AND secuencia = {secuencia}");
 
-                if (filasAfectadas == 0) return NotFound("No se encontró el registro para actualizar.");
+                if (filasAfectadas > 0)
+                {
+                    int userId = GetCurrentUserId();
+                    var nombreUsuario = GetCurrentUserName();
+
+                    await _context.Database.ExecuteSqlInterpolatedAsync($@"
+                          INSERT INTO aud_registros (fechacre, usuariocre, maquina, script)
+                          VALUES (NOW(), {userId}, {nombreUsuario}, {scriptFinal})");
+                }
+                else
+                {
+                    return NotFound("No se encontró el registro para actualizar.");
+                }         
+
             }
             catch (Exception ex)
             {
