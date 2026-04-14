@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -34,8 +34,16 @@ namespace PartesApi.Controllers
                 .Distinct()
                 .ToListAsync();
 
+            var codigosFaltas = await _context.FaltaEmpleados
+                .Where(f => f.Fecha == fecha && f.IdEmpleado.HasValue)
+                .Select(f => f.IdEmpleado)
+                .Where(id => id.HasValue)
+                .Select(id => id.Value)
+                .Distinct()
+                .ToListAsync();
+
             var RhMtrab = await _context.RhMtrabs
-                .Where(t => codigosAsistencia.Contains(t.CodTrabaj))
+                .Where(t => t.CodTrabaj.HasValue && codigosAsistencia.Contains(t.CodTrabaj.Value) && !codigosFaltas.Contains(t.CodTrabaj.Value))
                 .OrderBy(t => t.NombreCorto)
                 .AsNoTracking()
                 .ToListAsync();

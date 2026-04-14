@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -90,9 +90,27 @@ namespace PartesApi.Controllers
                 .Where(t => codigosLabor.Contains((uint)t.IdLabor) && t.Estado == "A")
                 .ToDictionaryAsync(t => (uint)t.IdLabor, t => (double)t.Valor);
 
+            var porcentajeExtra= await _context.Parametros
+                .Where(p => p.Tipo == "PORCPERMMAX")
+                .Select(p => p.Valor1) 
+                .FirstOrDefaultAsync();
+
+            var horaMaxLabor = await _context.Parametros
+                .Where(p => p.Tipo == "HORAMAXLABOR")
+                .Select(p => p.Valor1) 
+                .FirstOrDefaultAsync();
+
+            var horaMaxDia = await _context.Parametros
+                .Where(p => p.Tipo == "HORAMAXDIA")
+                .Select(p => p.Valor1) 
+                .FirstOrDefaultAsync();
+
+            var horasAdicionalesMemoria = new Dictionary<string, double>();
+
             foreach (var d in dto.Detalles)
             {
                 var fechaActual = DateOnly.FromDateTime(d.FechaInicio);
+                string keyEmpleadoDia = $"{d.CodTrabaj}_{fechaActual:yyyyMMdd}";
 
                 // 1. BUSCAR ACUMULADO: Sumamos lo que ya existe en la DB para este empleado, labor y fecha
                 var acumuladoEnDB = await _context.TranDpartes
@@ -105,18 +123,70 @@ namespace PartesApi.Controllers
 
                 if (laboresInfo.TryGetValue((uint)d.Labor, out var labor))
                 {
-                    // Validación de Máximo
-                    if (totalHoy > (double)labor.AvanceMaximo)
+                    double limiteMaximoReal = (double)labor.AvanceMaximo * (1 + ((double)porcentajeExtra / 100.0));
+
+                    double avanceMax = (double)labor.AvanceMaximo;
+                    double rendimientoPorHora = avanceMax / (double)horaMaxLabor;
+                    double horasActuales = (double)d.Cantidad / rendimientoPorHora;
+
+                    var detallesPreviosHoy = await _context.TranDpartes
+                    .Where(x => x.CodTrabaj == d.CodTrabaj && x.FechaInicio == DateOnly.FromDateTime(d.FechaInicio))
+                    .ToListAsync();
+
+                    double horasAcumuladasHoy = 0;
+                    foreach (var previo in detallesPreviosHoy)
                     {
-                        return BadRequest($"El empleado {d.CodTrabaj} ya tiene {acumuladoEnDB} registrados. " +
-                                         $"Con este nuevo ingreso suma {totalHoy}, excediendo el máximo de {labor.AvanceMaximo}.");
+                        
+                        if (previo.CodLabor.HasValue)
+                        {
+                            if (!laboresInfo.ContainsKey((uint)previo.CodLabor.Value))
+                            {
+                                var laborAdicional = await _context.Labors.FirstOrDefaultAsync(l => l.Id == (uint)previo.CodLabor.Value);
+                                if (laborAdicional != null)
+                                {
+                                    laboresInfo[(uint)previo.CodLabor.Value] = laborAdicional;
+                                }
+                            }
+
+                            if (laboresInfo.TryGetValue((uint)previo.CodLabor.Value, out var laborPrev))
+                            {
+                                double rendPrev = (double)laborPrev.AvanceMaximo / (double)horaMaxLabor;
+
+                                if (previo.Cantidad.HasValue)
+                                {
+                                    horasAcumuladasHoy += (double)previo.Cantidad.Value / rendPrev;
+                                }
+                            }
+                        }
                     }
 
+                    double horasEnMemoria = horasAdicionalesMemoria.TryGetValue(keyEmpleadoDia, out var h) ? h : 0;
+                    double totalHorasHoy = horasAcumuladasHoy + horasEnMemoria + horasActuales;
+
                     // Validación de Mínimo
-                    if (d.Cantidad < labor.AvanceMinimo)
+                    if ((d.Cantidad < labor.AvanceMinimo) && labor.RespetaMinimo == "S")
                     {
-                        return BadRequest($"Error: El empleado {d.CodTrabaj} no alcanza la cantidad mínima ({labor.AvanceMinimo}) para la labor {labor.Nombre}");
+                        return BadRequest($"Error: El empleado {d.CodTrabaj} no alcanza la cantidad mínima ({labor.AvanceMinimo:F0}) para la labor {labor.Nombre}");
                     }
+
+                    // Validación de Máximo
+                    if (totalHoy > limiteMaximoReal)
+                    {
+                        return BadRequest($"El empleado {d.CodTrabaj} ya tiene {acumuladoEnDB:F0} registrados. " +
+                                         $"Con este nuevo ingreso suma {totalHoy:F0}, excediendo el máximo permitido.");
+                    }
+
+                    // Validacion por hora
+                    if (totalHorasHoy > (double)horaMaxDia)
+                    {
+                        return BadRequest($"El empleado {d.CodTrabaj} excede las horas diarias permitidas. " +
+                                            $"Ya tiene {(horasAcumuladasHoy + horasEnMemoria):F0}h trabajadas. " +
+                                            $"Con este registro sumaría {totalHorasHoy:F0}h, superando el límite de horas laborables.");
+                    }
+
+                    if (!horasAdicionalesMemoria.ContainsKey(keyEmpleadoDia))
+                        horasAdicionalesMemoria[keyEmpleadoDia] = 0;
+                    horasAdicionalesMemoria[keyEmpleadoDia] += horasActuales;
                 }
                 else
                 {
@@ -124,20 +194,26 @@ namespace PartesApi.Controllers
                 }
             }
 
+            var ultimaSecuencia = await _context.TranDpartes
+            .Where(d => d.SecParte == dto.SecParte)
+            .MaxAsync(d => (int?)d.Secuencia) ?? 0;
+
             var entidades = dto.Detalles.Select(d =>
             {
                 var valorUnitario = (decimal)(tarifasDict.TryGetValue((uint)d.Labor, out var tarifa) ? tarifa : 0);
+                ultimaSecuencia++;
+
                 return new TranDparte
                 {
                     SecParte = dto.SecParte,
-                    Secuencia = d.Secuencia,
+                    Secuencia = ultimaSecuencia,
                     CodTrabaj = d.CodTrabaj,
                     LoteId = d.Lote,
                     CodLabor = d.Labor,
                     NomSeccion = d.NomSeccion.ToString(),
                     FechaInicio = DateOnly.FromDateTime(d.FechaInicio),
                     FechaFin = DateOnly.FromDateTime(d.FechaFin),
-                    Cantidad = d.Cantidad,
+                    Cantidad = d.Cantidad, 
                     ValorUnitario = valorUnitario,
                     ValorTotal = valorUnitario * d.Cantidad
                 };
@@ -196,6 +272,23 @@ namespace PartesApi.Controllers
                 return NotFound($"No se encontró el detalle con SecParte {secParte} y Secuencia {secuencia}.");
             }
 
+            var porcentajeExtra = await _context.Parametros
+            .Where(p => p.Tipo == "PORCPERMMAX")
+            .Select(p => p.Valor1)
+            .FirstOrDefaultAsync();
+
+            var horaMaxLabor = await _context.Parametros
+                .Where(p => p.Tipo == "HORAMAXLABOR")
+                .Select(p => p.Valor1)
+                .FirstOrDefaultAsync();
+
+            var horaMaxDia = await _context.Parametros
+                .Where(p => p.Tipo == "HORAMAXDIA")
+                .Select(p => p.Valor1)
+                .FirstOrDefaultAsync();
+
+            var horasAdicionalesMemoria = new Dictionary<string, double>();
+
             // 2. Validar límites de Labor
             var labor = await _context.Labors.FindAsync((uint)dto.Labor);
             if (labor == null) return BadRequest("Labor no encontrada.");
@@ -203,6 +296,8 @@ namespace PartesApi.Controllers
 
             // 3. Validar acumulado (restando la cantidad anterior del mismo registro)
             var fechaActual = DateOnly.FromDateTime(dto.FechaInicio);
+            string keyEmpleadoDia = $"{dto.CodTrabaj}_{fechaActual:yyyyMMdd}";
+
             var acumuladoEnDB = await _context.TranDpartes
                 .Where(x => x.CodTrabaj == dto.CodTrabaj
                          && x.CodLabor == dto.Labor
@@ -210,17 +305,55 @@ namespace PartesApi.Controllers
                          && !(x.SecParte == secParte && x.Secuencia == secuencia)) 
                 .SumAsync(x => x.Cantidad) ?? 0;
 
-            decimal totalHoy = acumuladoEnDB + dto.Cantidad;
-             
-            if (totalHoy > labor.AvanceMaximo)
+            double totalHoy = (double)(acumuladoEnDB + dto.Cantidad);
+
+            double limiteMaximoReal = (double)labor.AvanceMaximo * (1 + ((double)porcentajeExtra / 100.0));
+
+            double avanceMax = (double)labor.AvanceMaximo;
+            double rendimientoPorHora = avanceMax / (double)horaMaxLabor;
+            double horasActuales = (double)dto.Cantidad / rendimientoPorHora; 
+
+            var detallesPreviosHoy = await _context.TranDpartes
+                .Where(x => x.CodTrabaj == dto.CodTrabaj 
+                         && x.FechaInicio == fechaActual
+                         && !(x.SecParte == secParte && x.Secuencia == secuencia))
+                .ToListAsync();
+
+            double horasAcumuladasHoy = 0;
+            foreach (var previo in detallesPreviosHoy)
             {
-                return BadRequest($"El empleado ya tiene {acumuladoEnDB} registrados. " +
-                                 $"Con la edición suma {totalHoy}, excediendo el máximo de {labor.AvanceMaximo}.");
+                if (previo.CodLabor.HasValue)
+                {
+                    var laborPrev = await _context.Labors.FindAsync((uint)previo.CodLabor.Value);
+                    if (laborPrev != null)
+                    {
+                        double rendPrev = (double)laborPrev.AvanceMaximo / (double)horaMaxLabor;
+                        if (previo.Cantidad.HasValue)
+                        {
+                            horasAcumuladasHoy += (double)previo.Cantidad.Value / rendPrev;
+                        }
+                    }
+                }
             }
 
-            if (dto.Cantidad < labor.AvanceMinimo)
+            double horasEnMemoria = horasAdicionalesMemoria.TryGetValue(keyEmpleadoDia, out var h) ? h : 0;
+            double totalHorasHoy = horasAcumuladasHoy + horasEnMemoria + horasActuales;
+            if (totalHorasHoy > (double)horaMaxDia)
             {
-                return BadRequest($"La cantidad es inferior al mínimo permitido ({labor.AvanceMinimo}).");
+                return BadRequest($"El empleado {dto.CodTrabaj} excede las horas diarias permitidas. " +
+                                    $"Ya tiene {(horasAcumuladasHoy + horasEnMemoria):F0}h trabajadas. " +
+                                    $"Con este registro sumaría {totalHorasHoy:F0}h, superando el límite de horas laborables.");
+            }
+
+            if (totalHoy > limiteMaximoReal)
+            {
+                return BadRequest($"El empleado {dto.CodTrabaj} ya tiene {acumuladoEnDB:F0} registrados. " +
+                                 $"Con este nuevo ingreso suma {totalHoy:F0}, excediendo el máximo permitido.");
+            }
+
+            if (dto.Cantidad < labor.AvanceMinimo && labor.RespetaMinimo == "S")
+            {
+                return BadRequest($"Error: El empleado {dto.CodTrabaj} no alcanza la cantidad mínima ({labor.AvanceMinimo:F0}) para la labor {labor.Nombre}");
             }
 
             var cambios = new StringBuilder();

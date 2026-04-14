@@ -39,6 +39,9 @@ public partial class AppDbContext : DbContext
     public virtual DbSet<RhMlotseccion> RhMlotseccions { get; set; }
     public virtual DbSet<AreaGrupoLabor> AreaGrupoLabors { get; set; }
     public virtual DbSet<AudRegistro> AudRegistros { get; set; }
+    public virtual DbSet<Parametro> Parametros { get; set; }
+    public virtual DbSet<FaltaEmpleado> FaltaEmpleados { get; set; }
+    public virtual DbSet<PeriodoLiquidacion> PeriodoLiquidacions { get; set; }
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -117,6 +120,33 @@ public partial class AppDbContext : DbContext
         modelBuilder.Entity<AudRegistro>(entity =>
         {
             entity.HasKey(e => e.Id).HasName("PRIMARY");
+        });
+
+        modelBuilder.Entity<FaltaEmpleado>(entity =>
+        {
+            entity.HasKey(e => e.IdFalta).HasName("PRIMARY");
+
+            entity.Property(e => e.Estado).IsFixedLength();
+            entity.Property(e => e.SoloCorte).IsFixedLength();
+            entity.Property(e => e.Sueldo).IsFixedLength();
+        });
+
+        modelBuilder.Entity<Parametro>(entity =>
+        {
+            entity.HasKey(e => e.Id).HasName("PRIMARY");
+
+            entity.ToTable("parametro", tb => tb.HasComment("Todos los parametros del Sistema"));
+
+            entity.Property(e => e.Estado).IsFixedLength();
+            entity.Property(e => e.Prioridad).HasComment("2=Maxima 1=Mediana 0=Ninguna");
+        });
+
+        modelBuilder.Entity<PeriodoLiquidacion>(entity =>
+        {
+            entity.Property(e => e.Estado).IsFixedLength();
+            entity.Property(e => e.Liquidado)
+                .HasDefaultValueSql("'N'")
+                .IsFixedLength();
         });
 
         modelBuilder.Entity<DetAsistencia>(entity =>

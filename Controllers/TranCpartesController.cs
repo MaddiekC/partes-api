@@ -1,4 +1,4 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -30,10 +30,18 @@ namespace PartesApi.Controllers
         [HttpGet]
         public async Task<ActionResult<IEnumerable<TranCparte>>> GetTranCpartes()
         {
-            return await _context.TranCpartes
-                .OrderByDescending(t => t.FechaParte)
-                .Take(28)
-                .ToListAsync();
+            var ultimoPeriodo = await _context.PeriodoLiquidacions
+                .OrderByDescending(p => p.Fechainicio)
+                .FirstOrDefaultAsync();
+
+            var query = _context.TranCpartes.AsQueryable();
+
+            if (ultimoPeriodo != null && ultimoPeriodo.Fechainicio.HasValue && ultimoPeriodo.Fechafin.HasValue)
+            {
+                query = query.Where(p => p.FechaParte >= ultimoPeriodo.Fechainicio.Value && p.FechaParte <= ultimoPeriodo.Fechafin.Value);
+            }
+
+            return await query.ToListAsync();
         }
 
         // GET: api/TranCpartes/5
@@ -50,8 +58,9 @@ namespace PartesApi.Controllers
             return tranCparte;
         }
 
+
         [HttpGet("mine")]
-        public async Task<IActionResult> GetMyPartes()
+        public async Task<IActionResult> GetMyPartes([FromQuery] int page = 1, [FromQuery] int pageSize = 15)
         {
             var userIdClaim = User.FindFirst("UserId") ?? User.FindFirst(ClaimTypes.NameIdentifier);
             if (userIdClaim == null || string.IsNullOrEmpty(userIdClaim.Value))
@@ -65,17 +74,34 @@ namespace PartesApi.Controllers
                 return Unauthorized("Invalid user id claim");
             }
 
+            var hoy = DateTime.Now.Date;
+
+            var periodoActual = await _context.PeriodoLiquidacions
+                .Where(p => 
+                    p.Fechainicio.HasValue && p.Fechafin.HasValue &&
+                    hoy >= p.Fechainicio.Value.ToDateTime(TimeOnly.MinValue) &&
+                    hoy <= p.Fechafin.Value.ToDateTime(TimeOnly.MaxValue) &&
+                    p.Estado == "A")
+                .FirstOrDefaultAsync();
+
             var query = _context.TranCpartes
-            .AsNoTracking()
-            .Where(p => p.UsuarioCreId == userId && p.Estado == "A");
+                .AsNoTracking()
+                .Where(p => p.UsuarioCreId == userId && p.Estado == "A");
+
+            if (periodoActual != null && periodoActual.Fechainicio.HasValue && periodoActual.Fechafin.HasValue)
+            {
+                query = query.Where(p => p.FechaParte >= periodoActual.Fechainicio.Value
+                                      && p.FechaParte <= periodoActual.Fechafin.Value);
+            }
 
             var partes = await query
-                .OrderByDescending(p => p.FechaParte)
+                .OrderByDescending(p => p.SecParte)
+                .Skip((page - 1) * pageSize)
+                .Take(pageSize)
                 .Select(p => new {
                     Parte = p,
                     TotalDetalles = _context.TranDpartes.Count(d => d.SecParte == p.SecParte)
                 })
-                .Take(28)
                 .ToListAsync();
 
             var resultado = partes.Select(x => {

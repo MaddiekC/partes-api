@@ -1,4 +1,5 @@
-﻿using Microsoft.AspNetCore.Authorization;
+using Dapper; 
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -7,11 +8,11 @@ using Microsoft.IdentityModel.Tokens;
 using MySqlConnector;
 using PartesApi.Data;
 using PartesApi.Models;
+using System.Collections.Generic;
 using System.Configuration;
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
 using System.Text;
-using Dapper; 
 
 namespace PartesApi.Controllers
 {
@@ -128,7 +129,7 @@ namespace PartesApi.Controllers
         [HttpGet("datos/{nombreTabla}")]
         public async Task<IActionResult> GetDatosTabla(string nombreTabla)
         {
-            var tablasPermitidas = new[] { "rh_mhaci", "rh_mlotes", "labor", "rh_mtrab", "det_asistencia", "unidad_medida", "rh_mlotseccion", "area_grupo_labor" , "rh_mlotseccion"};
+            var tablasPermitidas = new[] { "rh_mhaci", "rh_mlotes", "labor", "rh_mtrab", "det_asistencia", "unidad_medida", "rh_mlotseccion", "area_grupo_labor" , "rh_mlotseccion", "falta_empleado", "parametro", "periodo_liquidacion", "tran_cparte", "tran_dparte"};
             if (!tablasPermitidas.Contains(nombreTabla.ToLower()))
                 return BadRequest("Tabla no permitida.");
 
@@ -139,8 +140,55 @@ namespace PartesApi.Controllers
                 // Filtro especial 
                 if (nombreTabla.ToLower() == "det_asistencia")
                 {
-                    sql = "SELECT * FROM det_asistencia WHERE fecha >= DATE_SUB(CURDATE(), INTERVAL 2 MONTH)";
+                    sql = "SELECT * FROM det_asistencia WHERE fecha >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)";
                 }
+
+                //PARA FALTAS
+                if (nombreTabla.ToLower() == "falta_empleado")
+                {
+                    sql = "SELECT * FROM falta_empleado WHERE fecha >= DATE_SUB(CURDATE(), INTERVAL 1 MONTH)";
+                }
+
+                //PARA PERIODO
+                if (nombreTabla.ToLower() == "periodo_liquidacion")
+                {
+                    sql = @"SELECT * FROM periodo_liquidacion 
+                            WHERE CURDATE() BETWEEN fechainicio AND fechafin 
+                            AND estado = 'A' 
+                            LIMIT 1";
+                }
+
+                if (nombreTabla.ToLower() == "tran_cparte")
+                {
+                    sql = @"SELECT sec_parte AS id_local, codigo, cod_hacienda, fecha_parte, estado, observacion 
+                            FROM tran_cparte 
+                            WHERE fecha_parte BETWEEN ( 
+                                SELECT fechainicio FROM periodo_liquidacion 
+                                WHERE CURDATE() BETWEEN fechainicio AND fechafin 
+                                AND estado = 'A' LIMIT 1
+                            ) AND(
+                                SELECT fechafin FROM periodo_liquidacion
+                                WHERE CURDATE() BETWEEN fechainicio AND fechafin
+                                AND estado = 'A' LIMIT 1
+                            )";
+                }
+                if (nombreTabla.ToLower() == "tran_dparte")
+                {
+                    sql = @"SELECT sec_parte, secuencia, cod_trabaj AS cod_trabj, cod_labor, lote_id, nom_seccion, cantidad, fecha_inicio, fecha_fin 
+                            FROM tran_dparte 
+                            WHERE sec_parte IN (
+                            SELECT sec_parte FROM tran_cparte
+                                WHERE fecha_parte BETWEEN (SELECT fechainicio FROM periodo_liquidacion  
+                                WHERE CURDATE() BETWEEN fechainicio AND fechafin 
+                                AND estado = 'A' LIMIT 1
+                            ) AND (
+                                SELECT fechafin FROM periodo_liquidacion
+                                WHERE CURDATE() BETWEEN fechainicio AND fechafin
+                                AND estado = 'A' LIMIT 1
+                                  ) 
+                            )";
+                }
+
                 var datosRaw = await connection.QueryAsync(sql);
 
                 // Convertimos cada fila a un diccionario y filtramos valores complejos
@@ -151,13 +199,11 @@ namespace PartesApi.Controllers
                         kvp => kvp.Key,
                     kvp => {
                             // Si el valor es una fecha o un objeto complejo, lo convertimos a texto
-                            if (kvp.Value is DateTime dt) return dt.ToString("yyyy-MM-dd");
+                            if (kvp.Value is DateTime dt) return dt.ToString("yyyy -MM-dd");
 
-                            // Si es el objeto raro que viste en el log (ExpandoObject o similar)
                             if (kvp.Value != null && kvp.Value.GetType().Name.Contains("DateTime"))
                                 return Convert.ToDateTime(kvp.Value.ToString()).ToString("yyyy-MM-dd");
 
-                            // Si es cualquier otro objeto que no sea un tipo simple, lo hacemos null para no romper SQLite
                             if (kvp.Value != null && !kvp.Value.GetType().IsValueType && !(kvp.Value is string))
                                 return null;
 
