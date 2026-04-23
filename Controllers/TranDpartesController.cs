@@ -22,14 +22,12 @@ namespace PartesApi.Controllers
         }
 
 
-        // GET: api/AdRhMhacis
         [HttpGet]
         public async Task<ActionResult<IEnumerable<TranDparte>>> GetRhMhacis()
         {
             return await _context.TranDpartes.ToListAsync();
         }
 
-        //GET: api/RhMhacis/5
         [HttpGet("{SEC_PARTE}")]
         public async Task<ActionResult<TranDparte>> GetRhMhaci(uint SEC_PARTE)
         {
@@ -41,6 +39,7 @@ namespace PartesApi.Controllers
             var TranDparte = await _context.TranDpartes
                 .AsNoTracking()
                 .Where(x => x.SecParte == SEC_PARTE)
+                .OrderByDescending(x => x.Secuencia)
                 .ToListAsync();
 
             return Ok(new
