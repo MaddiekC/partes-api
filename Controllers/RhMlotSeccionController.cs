@@ -18,7 +18,6 @@ namespace PartesApi.Controllers
             _context = context;
         }
 
-        [AllowAnonymous]
         // GET: api/RhMlotSeccion
         [HttpGet]
         public async Task<ActionResult<IEnumerable<RhMlotseccion>>> GetRhMhacis()

@@ -104,7 +104,6 @@ namespace PartesApi.Controllers
             public string Extra { get; set; } = string.Empty; // Para detectar llaves primarias o autoincrementales
         }
 
-        [AllowAnonymous]
         [HttpGet("esquema/{nombreTabla}")]
         public async Task<IActionResult> GetEsquema(string nombreTabla)
         {
@@ -125,7 +124,7 @@ namespace PartesApi.Controllers
             return Ok(esquema);
         }
 
-        [AllowAnonymous]
+
         [HttpGet("datos/{nombreTabla}")]
         public async Task<IActionResult> GetDatosTabla(string nombreTabla)
         {

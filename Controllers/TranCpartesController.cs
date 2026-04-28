@@ -240,7 +240,6 @@ namespace PartesApi.Controllers
             return _context.TranCpartes.Any(e => e.SecParte == id);
         }
 
-        [AllowAnonymous]
         // PATCH: api/TranCpartes/Desactivar/5
         [HttpPatch("Desactivar/{SEC_PARTE}")]
         public async Task<IActionResult> DesactivarParte(int SEC_PARTE)
